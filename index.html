@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Shop Manager Pro</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+
+body{
+  background:#f5f5f5;
+}
+
+body.dark{
+  background:#121212;
+  color:#fff;
+}
+
+.dark .card{
+  background:#1e1e1e;
+  color:#fff;
+  border-color:#333;
+}
+
+.dark .form-control{
+  background:#2a2a2a;
+  color:#fff;
+  border-color:#444;
+}
+
+.dark .navbar{
+  background:#1e1e1e !important;
+}
+
+.navbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+#search{
+  max-width:400px;
+}
+
+.menu{
+  cursor:pointer;
+  font-size:22px;
+}
+
+.dropdown-menu-custom{
+  position:absolute;
+  top:60px;
+  right:10px;
+  background:#fff;
+  border:1px solid #ddd;
+  border-radius:8px;
+  padding:10px;
+  display:none;
+  z-index:1000;
+}
+
+.dropdown-menu-custom a{
+  display:block;
+  cursor:pointer;
+  padding:5px;
+  text-decoration:none;
+  color:#000;
+}
+
+.product-card-body{
+  cursor:pointer;
+}
+
+.card-main-img{
+  width:100%;
+  height:180px;
+  object-fit:cover;
+  border-radius:8px;
+  transition:0.2s;
+}
+
+.product-card-body:hover .card-main-img{
+  transform:scale(1.03);
+}
+
+.card-no-img{
+  width:100%;
+  height:180px;
+  background:#eee;
+  border-radius:8px;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  font-size:50px;
+}
+
+.dark .card-no-img{
+  background:#2a2a2a;
+}
+
+</style>
+</head>
+
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar bg-light px-3 py-2">
+
+  <input
+    type="text"
+    id="search"
+    class="form-control"
+    placeholder="Search by name / category / code"
+    onkeyup="render()"
+  >
+
+  <div class="d-flex gap-3 align-items-center">
+
+    <button class="btn btn-dark btn-sm" onclick="toggleDark()">
+      🌙
+    </button>
+
+    <div class="menu" onclick="toggleMenu()">⋮</div>
+
+  </div>
+
+</nav>
+
+<!-- MENU -->
+<div id="menu" class="dropdown-menu-custom"></div>
+
+<!-- LOGIN MODAL -->
+<div class="modal fade" id="loginModal" tabindex="-1">
+
+  <div class="modal-dialog modal-dialog-centered">
+
+    <div class="modal-content p-4">
+
+      <h5 class="mb-3">Admin Login</h5>
+
+      <input
+        type="email"
+        id="email"
+        class="form-control mb-2"
+        placeholder="Email"
+      >
+
+      <input
+        type="password"
+        id="password"
+        class="form-control mb-3"
+        placeholder="Password"
+        onkeydown="if(event.key==='Enter') login()"
+      >
+
+      <button class="btn btn-primary w-100" onclick="login()">
+        Login
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="container mt-4" id="mainContent">
+
+  <!-- ADMIN PANEL -->
+  <div id="adminPanel" style="display:none;">
+
+    <h4 id="formTitle">➕ Add Product</h4>
+
+    <input class="form-control mb-2" id="name" placeholder="Product Name *">
+
+    <input class="form-control mb-2" id="code" placeholder="Product Code">
+
+    <input class="form-control mb-2" id="sell" placeholder="Selling Price *">
+
+    <input class="form-control mb-2" id="category" placeholder="Category">
+
+    <input class="form-control mb-2" id="supplier" placeholder="Brand / Supplier">
+
+    <input class="form-control mb-2" id="date" type="date">
+
+    <input class="form-control mb-2" id="buy" placeholder="Buying Price">
+
+    <textarea class="form-control mb-2" id="desc" placeholder="Description"></textarea>
+
+    <input class="form-control mb-2" id="image" type="file" multiple>
+
+    <div class="d-flex gap-2">
+
+      <button class="btn btn-success flex-grow-1" onclick="addProduct()">
+        Save Product
+      </button>
+
+      <button
+        class="btn btn-secondary"
+        id="cancelBtn"
+        style="display:none;"
+        onclick="cancelEdit()"
+      >
+        Cancel
+      </button>
+
+    </div>
+
+    <hr>
+
+  </div>
+
+  <!-- PRODUCT LIST -->
+  <div id="productSection">
+
+    <h4>📦 Products</h4>
+
+    <div class="row" id="list"></div>
+
+  </div>
+
+  <!-- DETAIL PAGE -->
+  <div id="detailPage" style="display:none;"></div>
+
+</div>
+
+<script>
+
+const SUPABASE_URL = "https://twaizuptcivzbumlrwpf.supabase.co";
+
+const SUPABASE_KEY = "sb_publishable_XZ5vYsPcIq6uB9sU1RMM5w_I6eGssYG";
+
+const supabaseClient = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
+let products = [];
+let isAdmin = false;
+let editIndex = -1;
+
+/* DARK MODE */
+function toggleDark(){
+  document.body.classList.toggle("dark");
+}
+
+/* MENU */
+function toggleMenu(){
+
+  const menu = document.getElementById("menu");
+
+  if(menu.style.display === "block"){
+    menu.style.display = "none";
+    return;
+  }
+
+  menu.innerHTML = isAdmin
+    ? `<a onclick="logout()">🚪 Logout</a>`
+    : `<a onclick="showLogin()">🔑 Login</a>`;
+
+  menu.style.display = "block";
+}
+
+/* SHOW LOGIN */
+function showLogin(){
+
+  document.getElementById("menu").style.display = "none";
+
+  new bootstrap.Modal(
+    document.getElementById("loginModal")
+  ).show();
+}
+
+/* LOGIN */
+async function login(){
+
+  const email =
+    document.getElementById("email").value.trim();
+
+  const password =
+    document.getElementById("password").value;
+
+  const { data, error } =
+    await supabaseClient.auth.signInWithPassword({
+
+      email,
+      password
+
+    });
+
+  if(error){
+
+    alert("Wrong Email or Password");
+
+    return;
+  }
+
+  isAdmin = true;
+
+  document.getElementById("adminPanel")
+    .style.display = "block";
+
+  bootstrap.Modal.getInstance(
+    document.getElementById("loginModal")
+  )?.hide();
+
+  alert("Login Successful");
+
+  render();
+}
+
+/* LOGOUT */
+async function logout(){
+
+  await supabaseClient.auth.signOut();
+
+  isAdmin = false;
+
+  document.getElementById("adminPanel")
+    .style.display = "none";
+
+  document.getElementById("menu")
+    .style.display = "none";
+
+  render();
+}
+
+/* LOAD PRODUCTS */
+async function loadProducts(){
+
+  const { data, error } =
+    await supabaseClient
+      .from("products")
+      .select("*")
+      .order("id", { ascending:false });
+
+  if(error){
+
+    console.log(error);
+
+    return;
+  }
+
+  products = data;
+
+  render();
+}
+
+/* CLEAR FORM */
+function clearForm(){
+
+  [
+    "name",
+    "code",
+    "sell",
+    "category",
+    "supplier",
+    "date",
+    "buy",
+    "desc"
+  ].forEach(id=>{
+    document.getElementById(id).value = "";
+  });
+
+  document.getElementById("image").value = "";
+
+  document.getElementById("formTitle").textContent =
+    "➕ Add Product";
+
+  document.getElementById("cancelBtn").style.display =
+    "none";
+}
+
+/* CANCEL EDIT */
+function cancelEdit(){
+
+  editIndex = -1;
+
+  clearForm();
+}
+
+/* ADD PRODUCT */
+async function addProduct(){
+
+  const name = document.getElementById("name").value.trim();
+
+  const code = document.getElementById("code").value.trim();
+
+  const sell = document.getElementById("sell").value.trim();
+
+  if(!name || !sell){
+
+    alert("Name and Selling Price required");
+
+    return;
+  }
+
+  const category = document.getElementById("category").value;
+
+  const supplier = document.getElementById("supplier").value;
+
+  const date = document.getElementById("date").value;
+
+  const buy = document.getElementById("buy").value;
+
+  const desc = document.getElementById("desc").value;
+
+  const files = document.getElementById("image").files;
+
+  let oldImages =
+    (editIndex !== -1 && products[editIndex]?.images)
+    ? products[editIndex].images
+    : [];
+
+  if(files.length === 0){
+
+    saveFinal(oldImages);
+
+    return;
+  }
+
+  let images = [];
+  let count = 0;
+
+  for(let i=0;i<files.length;i++){
+
+    const reader = new FileReader();
+
+    reader.onload = e=>{
+
+      images.push(e.target.result);
+
+      if(++count === files.length){
+        saveFinal(images);
+      }
+    };
+
+    reader.readAsDataURL(files[i]);
+  }
+
+  async function saveFinal(imgArr){
+
+    const product = {
+      name,
+      code,
+      sell,
+      category,
+      supplier,
+      date,
+      buy,
+      description: desc,
+      images: imgArr
+    };
+
+    if(editIndex !== -1){
+
+      const id = products[editIndex].id;
+
+      await supabaseClient
+        .from("products")
+        .update(product)
+        .eq("id", id);
+
+      alert("Product Updated");
+
+    }else{
+
+      await supabaseClient
+        .from("products")
+        .insert([product]);
+
+      alert("Product Added");
+    }
+
+    editIndex = -1;
+
+    clearForm();
+
+    await loadProducts();
+  }
+}
+
+/* EDIT */
+function editProduct(i){
+
+  const p = products[i];
+
+  document.getElementById("name").value = p.name;
+
+  document.getElementById("code").value = p.code || "";
+
+  document.getElementById("sell").value = p.sell;
+
+  document.getElementById("category").value =
+    p.category || "";
+
+  document.getElementById("supplier").value =
+    p.supplier || "";
+
+  document.getElementById("date").value =
+    p.date || "";
+
+  document.getElementById("buy").value =
+    p.buy || "";
+
+  document.getElementById("desc").value =
+    p.description || "";
+
+  editIndex = i;
+
+  document.getElementById("formTitle").textContent =
+    "✏️ Edit Product";
+
+  document.getElementById("cancelBtn").style.display =
+    "inline-block";
+
+  window.scrollTo({
+    top:0,
+    behavior:"smooth"
+  });
+}
+
+/* DELETE */
+async function deleteProduct(i){
+
+  if(!confirm("Delete this product?")) return;
+
+  const id = products[i].id;
+
+  await supabaseClient
+    .from("products")
+    .delete()
+    .eq("id", id);
+
+  await loadProducts();
+}
+
+/* DETAIL PAGE */
+function openDetail(i){
+
+  const p = products[i];
+
+  document.getElementById("productSection").style.display =
+    "none";
+
+  document.getElementById("adminPanel").style.display =
+    "none";
+
+  const detail = document.getElementById("detailPage");
+
+  let imgs = "";
+
+  if(p.images?.length){
+
+    imgs = `
+      <div class="d-flex gap-2 overflow-auto mb-3">
+        ${p.images.map(img=>`
+          <img
+            src="${img}"
+            style="
+              width:120px;
+              height:120px;
+              object-fit:cover;
+              border-radius:8px;
+            "
+          >
+        `).join("")}
+      </div>
+    `;
+  }
+
+  detail.innerHTML = `
+
+    <button
+      class="btn btn-secondary mb-3"
+      onclick="closeDetail()"
+    >
+      ← Back
+    </button>
+
+    <div class="card p-4">
+
+      ${imgs}
+
+      <h2>${p.name}</h2>
+
+      <p><b>🆔 Code:</b> ${p.code || "N/A"}</p>
+
+      <p><b>💰 Selling Price:</b> ৳${p.sell}</p>
+
+      <p><b>🛒 Buying Price:</b> ৳${p.buy || "-"}</p>
+
+      <p><b>📁 Category:</b> ${p.category || "-"}</p>
+
+      <p><b>🏷️ Brand:</b> ${p.supplier || "-"}</p>
+
+      <p><b>📅 Date:</b> ${p.date || "-"}</p>
+
+      <p><b>📄 Description:</b><br>${p.description || "-"}</p>
+
+    </div>
+  `;
+
+  detail.style.display = "block";
+}
+
+/* CLOSE DETAIL */
+function closeDetail(){
+
+  document.getElementById("detailPage").style.display =
+    "none";
+
+  document.getElementById("productSection").style.display =
+    "block";
+
+  if(isAdmin){
+    document.getElementById("adminPanel").style.display =
+      "block";
+  }
+
+  render();
+}
+
+/* RENDER */
+function render(){
+
+  const list = document.getElementById("list");
+
+  list.innerHTML = "";
+
+  const search =
+    document.getElementById("search")
+    .value
+    .toLowerCase();
+
+  products.forEach((p,i)=>{
+
+    if(
+      !p.name.toLowerCase().includes(search) &&
+      !(p.category || "").toLowerCase().includes(search) &&
+      !(p.code || "").toLowerCase().includes(search)
+    ){
+      return;
+    }
+
+    let imgHtml = "";
+
+    if(p.images?.length){
+
+      imgHtml = `
+        <img
+          class="card-main-img"
+          src="${p.images[0]}"
+        >
+      `;
+
+    }else{
+
+      imgHtml = `
+        <div class="card-no-img">📦</div>
+      `;
+    }
+
+    const col = document.createElement("div");
+
+    col.className =
+      "col-12 col-sm-6 col-md-4 col-lg-3 mb-3";
+
+    col.innerHTML = `
+      <div class="card p-2 h-100">
+
+        <div
+          class="product-card-body"
+          onclick="openDetail(${i})"
+        >
+
+          ${imgHtml}
+
+          <b>${p.name}</b><br>
+
+          <small class="text-muted">
+            🆔 Code: ${p.code || "N/A"}
+          </small>
+
+          <p class="mb-1 mt-1">
+            💰 Price: ৳${p.sell}
+          </p>
+
+          <small class="text-muted">
+            📁 ${p.category || "N/A"}
+          </small>
+
+        </div>
+
+        ${isAdmin ? `
+
+          <div class="d-flex gap-1 mt-3">
+
+            <button
+              class="btn btn-warning btn-sm flex-grow-1"
+              onclick="editProduct(${i})"
+            >
+              Edit
+            </button>
+
+            <button
+              class="btn btn-danger btn-sm flex-grow-1"
+              onclick="deleteProduct(${i})"
+            >
+              Delete
+            </button>
+
+          </div>
+
+        ` : ""}
+
+      </div>
+    `;
+
+    list.appendChild(col);
+  });
+}
+
+/* CHECK LOGIN */
+async function checkLogin(){
+
+  const {
+    data: { session }
+  } = await supabaseClient.auth.getSession();
+
+  if(session){
+
+    isAdmin = true;
+
+    document.getElementById("adminPanel")
+      .style.display = "block";
+  }
+}
+
+checkLogin();
+loadProducts();
+
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>
+```
+
